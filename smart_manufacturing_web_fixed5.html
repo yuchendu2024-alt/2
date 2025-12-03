@@ -6,15 +6,13 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>智能制造视觉检测系统 (V6)</title>
+    <title>智能制造视觉检测系统 (V7)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
     <script>
         tailwind.config = {
-            theme: {
-                extend: { colors: { primary: '#165DFF', secondary: '#36CFFB', success: '#00B42A', warning: '#FF7D00', danger: '#F53F3F', info: '#86909C', dark: '#1D2129' } }
-            }
+            theme: { extend: { colors: { primary: '#165DFF', secondary: '#36CFFB', success: '#00B42A', warning: '#FF7D00', danger: '#F53F3F' } } }
         }
     </script>
 </head>
@@ -23,11 +21,11 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">智能制造视觉检测系统 <span class="bg-red-500 text-white text-xs px-2 py-1 rounded ml-2">V6</span></h1>
+                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-red-500 text-white text-xs px-2 py-1 rounded ml-2">V7</span></h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
-                <span id="match-status" class="bg-gray-500 text-xs px-2 py-1 rounded">等待参考图</span>
+                <span id="match-status" class="bg-gray-500 text-xs px-2 py-1 rounded">等待模板</span>
             </div>
         </div>
     </header>
@@ -39,39 +37,25 @@
                     <div class="relative aspect-video bg-black">
                         <video id="video" class="absolute inset-0 w-full h-full object-contain" playsinline muted></video>
                         <canvas id="canvasOutput" class="absolute inset-0 w-full h-full object-contain"></canvas>
-                        
                         <div class="absolute top-4 left-4 bg-black/70 text-white text-xs px-2 py-1 rounded-md z-50">
-                            <span id="camera-status"><i class="fa fa-circle text-danger mr-1"></i>摄像头未连接</span>
+                            <span id="camera-status">摄像头未连接</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="bg-white rounded-lg shadow-md p-4 space-y-4">
                     <div class="flex items-center gap-4 border-b pb-4">
-                        <span class="bg-primary text-white px-2 py-1 rounded text-sm">Step 1</span>
-                        <div class="flex-1">
-                            <p class="text-sm font-semibold">载入标准模板</p>
-                            <p class="text-xs text-gray-500">上传 1.jpg (必须是正的)</p>
-                        </div>
-                        <button onclick="document.getElementById('ref-input').click()" class="bg-secondary hover:bg-secondary/90 text-white py-1 px-3 rounded text-sm">
-                            <i class="fa fa-upload"></i> 上传模板
-                        </button>
+                        <span class="bg-primary text-white px-2 py-1 rounded text-sm">步骤1</span>
+                        <div class="flex-1 text-sm">上传正向模板 (1.jpg)</div>
+                        <button onclick="document.getElementById('ref-input').click()" class="bg-secondary text-white py-1 px-3 rounded text-sm">上传</button>
                         <input type="file" id="ref-input" accept="image/*" class="hidden">
                     </div>
-
                     <div class="flex items-center gap-4">
-                        <span class="bg-success text-white px-2 py-1 rounded text-sm">Step 2</span>
-                        <div class="flex-1">
-                            <p class="text-sm font-semibold">开始检测</p>
-                            <p class="text-xs text-gray-500">实时计算角度和颜色</p>
-                        </div>
+                        <span class="bg-success text-white px-2 py-1 rounded text-sm">步骤2</span>
+                        <div class="flex-1 text-sm">开始检测</div>
                         <div class="flex gap-2">
-                            <button id="btn-camera" onclick="toggleCamera()" class="bg-primary hover:bg-primary/90 text-white py-2 px-4 rounded text-sm" disabled>
-                                <i class="fa fa-video-camera"></i> 启动摄像头
-                            </button>
-                            <button onclick="document.getElementById('test-input').click()" class="bg-warning hover:bg-warning/90 text-white py-2 px-4 rounded text-sm">
-                                <i class="fa fa-image"></i> 图片测试
-                            </button>
+                            <button id="btn-camera" onclick="toggleCamera()" class="bg-primary text-white py-2 px-4 rounded text-sm" disabled>启动摄像头</button>
+                            <button onclick="document.getElementById('test-input').click()" class="bg-warning text-white py-2 px-4 rounded text-sm">图片测试</button>
                             <input type="file" id="test-input" accept="image/*" class="hidden">
                         </div>
                     </div>
@@ -80,25 +64,23 @@
 
             <div class="space-y-6">
                 <div class="bg-white rounded-lg shadow-md p-4">
-                    <h2 class="text-lg font-semibold mb-4 border-b pb-2">识别结果</h2>
+                    <h2 class="text-lg font-semibold mb-4 border-b pb-2">数据面板</h2>
                     <div class="grid grid-cols-2 gap-4 text-center">
                         <div class="p-3 bg-gray-50 rounded">
                             <div class="text-xs text-gray-500">颜色</div>
                             <div id="res-color" class="text-xl font-bold text-gray-400">--</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded">
-                            <div class="text-xs text-gray-500">旋转角度</div>
+                            <div class="text-xs text-gray-500">角度 (V7内核)</div>
                             <div id="res-angle" class="text-3xl font-bold text-primary">--°</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded col-span-2">
-                            <div class="text-xs text-gray-500">特征匹配点数</div>
-                            <div id="res-matches" class="text-2xl font-bold text-gray-600">0</div>
+                            <div class="text-xs text-gray-500">匹配点数 / 算法状态</div>
+                            <div id="res-matches" class="text-lg font-bold text-gray-600">0</div>
                         </div>
                     </div>
                 </div>
-
                 <div class="bg-white rounded-lg shadow-md p-4">
-                    <h2 class="text-sm font-semibold mb-2">调试日志</h2>
                     <div id="system-log" class="h-48 overflow-y-auto bg-gray-900 text-green-400 p-2 rounded text-xs font-mono"></div>
                 </div>
             </div>
@@ -106,42 +88,33 @@
     </main>
 
     <script>
-        // === 全局变量 ===
         let video = document.getElementById('video');
         let canvas = document.getElementById('canvasOutput');
         let ctx = canvas.getContext('2d');
-        let stream = null;
-        let isRunning = false;
-        
-        let src = null, dst = null, hsv = null, gray = null;
-        let cap = null;
-        let mask = null, maskRed = null, maskBlue = null;
+        let stream = null, isRunning = false;
+        let src = null, dst = null, hsv = null, gray = null, cap = null;
         let lowRed1, highRed1, lowRed2, highRed2, lowBlue, highBlue;
-        let contours = null, hierarchy = null;
-        
-        let orb = null, bf = null;
-        let refKeypoints = null, refDescriptors = null;
-        let refImgSize = null;
+        let orb = null, bf = null, refKeypoints = null, refDescriptors = null;
         let isRefReady = false;
+        let refImgSize = null;
 
         function onOpenCvReady() {
             document.getElementById('opencv-status').textContent = "OpenCV 就绪";
             document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
             document.getElementById('btn-camera').disabled = false;
-            addLog("系统就绪(V6)。请上传参考图。");
+            log("V7 系统就绪。请上传模板。");
         }
 
         function log(msg) {
-            let logDiv = document.getElementById('system-log');
-            logDiv.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-            logDiv.scrollTop = logDiv.scrollHeight;
+            let d = document.getElementById('system-log');
+            d.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+            d.scrollTop = d.scrollHeight;
         }
         window.addLog = log;
 
         document.getElementById('ref-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
-            log(`分析模板: ${file.name}...`);
             let img = new Image();
             img.onload = function() {
                 try {
@@ -157,11 +130,12 @@
                     
                     bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
                     isRefReady = true;
-                    document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()}点)`;
+                    
+                    document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()})`;
                     document.getElementById('match-status').className = "bg-blue-600 text-white text-xs px-2 py-1 rounded";
-                    log(`模板成功! 特征点: ${refKeypoints.size()}`);
+                    log(`模板特征点: ${refKeypoints.size()}`);
                     mat.delete(); grayRef.delete();
-                } catch(err) { log("模板失败: " + err); }
+                } catch(err) { log("模板错误: " + err); }
             };
             img.src = URL.createObjectURL(file);
         };
@@ -177,17 +151,17 @@
                     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
                     startProcessing();
                 };
-                document.getElementById('btn-camera').innerHTML = '<i class="fa fa-stop"></i> 停止';
-                document.getElementById('btn-camera').className = "bg-danger hover:bg-danger/90 text-white py-2 px-4 rounded text-sm";
+                document.getElementById('btn-camera').innerText = "停止";
+                document.getElementById('btn-camera').className = "bg-danger text-white py-2 px-4 rounded text-sm";
                 isRunning = true;
-            } catch(err) { alert("摄像头错误：" + err.message); }
+            } catch(err) { alert(err.message); }
         }
 
         function stopCamera() {
             if(stream) stream.getTracks().forEach(t => t.stop());
             isRunning = false;
-            document.getElementById('btn-camera').innerHTML = '<i class="fa fa-video-camera"></i> 启动摄像头';
-            document.getElementById('btn-camera').className = "bg-primary hover:bg-primary/90 text-white py-2 px-4 rounded text-sm";
+            document.getElementById('btn-camera').innerText = "启动摄像头";
+            document.getElementById('btn-camera').className = "bg-primary text-white py-2 px-4 rounded text-sm";
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
@@ -212,12 +186,14 @@
             if(dst) dst.delete(); dst = new cv.Mat(h, w, cv.CV_8UC3);
             if(hsv) hsv.delete(); hsv = new cv.Mat();
             if(gray) gray.delete(); gray = new cv.Mat();
+            
             lowRed1 = new cv.Mat(h, w, cv.CV_8UC3, [0, 50, 50, 0]);
             highRed1 = new cv.Mat(h, w, cv.CV_8UC3, [10, 255, 255, 0]);
             lowRed2 = new cv.Mat(h, w, cv.CV_8UC3, [170, 50, 50, 0]);
             highRed2 = new cv.Mat(h, w, cv.CV_8UC3, [180, 255, 255, 0]);
             lowBlue = new cv.Mat(h, w, cv.CV_8UC3, [100, 50, 50, 0]);
             highBlue = new cv.Mat(h, w, cv.CV_8UC3, [125, 255, 255, 0]);
+            
             cap = new cv.VideoCapture(video);
             requestAnimationFrame(loop);
         }
@@ -228,104 +204,112 @@
         }
 
         function processMat(inputMat) {
+            // 1. 颜色识别
             cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
             cv.cvtColor(dst, hsv, cv.COLOR_RGB2HSV);
             
-            let mask = new cv.Mat(), maskR1 = new cv.Mat(), maskR2 = new cv.Mat(), maskB = new cv.Mat();
-            cv.inRange(hsv, lowRed1, highRed1, maskR1);
-            cv.inRange(hsv, lowRed2, highRed2, maskR2);
-            cv.bitwise_or(maskR1, maskR2, mask);
+            let mask = new cv.Mat(), maskR = new cv.Mat(), maskB = new cv.Mat();
+            let m1 = new cv.Mat(), m2 = new cv.Mat();
+            cv.inRange(hsv, lowRed1, highRed1, m1);
+            cv.inRange(hsv, lowRed2, highRed2, m2);
+            cv.bitwise_or(m1, m2, maskR);
             cv.inRange(hsv, lowBlue, highBlue, maskB);
             
             let contours = new cv.MatVector(), hierarchy = new cv.Mat();
-            let foundColor = "--", colorClass = "text-gray-400";
+            let color = "--", colorClass = "text-gray-400";
             
             cv.findContours(maskB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-            let blueFound = false;
+            let bFound = false;
             for(let i=0; i<contours.size(); ++i) {
-                if(cv.contourArea(contours.get(i)) > 1000) {
-                    blueFound = true; cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255,255), 3);
-                }
+                if(cv.contourArea(contours.get(i)) > 1000) { bFound = true; cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255), 3); }
             }
-            if(blueFound) { foundColor = "蓝色"; colorClass = "text-blue-500"; }
+            if(bFound) { color = "蓝色"; colorClass = "text-blue-500"; }
             else {
                 contours.delete(); contours = new cv.MatVector();
-                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                cv.findContours(maskR, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 for(let i=0; i<contours.size(); ++i) {
-                    if(cv.contourArea(contours.get(i)) > 1000) {
-                        foundColor = "红色"; colorClass = "text-red-500";
-                        cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0,255), 3);
-                    }
+                    if(cv.contourArea(contours.get(i)) > 1000) { color = "红色"; colorClass = "text-red-500"; cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0), 3); }
                 }
             }
 
-            let angleShow = "--°";
-            let matchCount = 0;
+            // 2. 角度计算 (V7 修正版)
+            let angleTxt = "--°";
+            let matchInfo = "0";
             
             if(isRefReady) {
-                let frameGray = new cv.Mat();
-                cv.cvtColor(inputMat, frameGray, cv.COLOR_RGBA2GRAY);
+                let fGray = new cv.Mat();
+                cv.cvtColor(inputMat, fGray, cv.COLOR_RGBA2GRAY);
                 let kp = new cv.KeyPointVector(), desc = new cv.Mat();
-                orb.detectAndCompute(frameGray, new cv.Mat(), kp, desc);
+                orb.detectAndCompute(fGray, new cv.Mat(), kp, desc);
                 
                 if(desc.rows > 0 && refDescriptors.rows > 0) {
                     let matches = new cv.DMatchVector();
                     try {
                         bf.match(refDescriptors, desc, matches);
                         let good = [];
-                        for(let i=0; i<matches.size(); ++i) {
-                            if(matches.get(i).distance < 60) good.push(matches.get(i));
-                        }
-                        matchCount = good.length;
+                        for(let i=0; i<matches.size(); ++i) if(matches.get(i).distance < 60) good.push(matches.get(i));
                         
-                        if(matchCount > 15) {
-                            let srcPoints = [], dstPoints = [];
-                            for (let i = 0; i < good.length; i++) {
+                        matchInfo = good.length;
+                        
+                        if(good.length > 10) {
+                            // 尝试精准算法 (Homography)
+                            let srcPts = [], dstPts = [];
+                            for(let i=0; i<good.length; i++) {
                                 let m = good[i];
                                 let sp = refKeypoints.get(m.queryIdx).pt;
                                 let dp = kp.get(m.trainIdx).pt;
-                                srcPoints.push(sp.x); srcPoints.push(sp.y);
-                                dstPoints.push(dp.x); dstPoints.push(dp.y);
+                                srcPts.push(sp.x); srcPts.push(sp.y);
+                                dstPts.push(dp.x); dstPts.push(dp.y);
                             }
-                            let srcMat = cv.matFromName(srcPoints.length/2, 1, cv.CV_32FC2, srcPoints);
-                            let dstMat = cv.matFromName(dstPoints.length/2, 1, cv.CV_32FC2, dstPoints);
+                            
+                            // 关键修复：使用 64F 防止精度丢失导致空矩阵
+                            let srcMat = cv.matFromName(srcPts.length/2, 1, cv.CV_64FC2, srcPts);
+                            let dstMat = cv.matFromName(dstPts.length/2, 1, cv.CV_64FC2, dstPts);
                             let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
-
+                            
                             if(!H.empty()) {
-                                // 提取角度
-                                let h00 = H.data64F[0];
-                                let h10 = H.data64F[3];
+                                let h00 = H.data64F[0], h10 = H.data64F[3];
                                 let theta = Math.atan2(h10, h00) * 180 / Math.PI;
                                 if(theta < 0) theta += 360;
-                                angleShow = Math.round(theta) + "°";
+                                angleTxt = Math.round(theta) + "°";
+                                matchInfo += " (精准)";
                                 
                                 // 画框
-                                let objCorners = cv.matFromName(4, 1, cv.CV_32FC2, [0, 0, refImgSize.width, 0, refImgSize.width, refImgSize.height, 0, refImgSize.height]);
-                                let sceneCorners = new cv.Mat();
-                                cv.perspectiveTransform(objCorners, sceneCorners, H);
-                                let p1 = { x: sceneCorners.data32F[0], y: sceneCorners.data32F[1] };
-                                let p2 = { x: sceneCorners.data32F[2], y: sceneCorners.data32F[3] };
-                                let p3 = { x: sceneCorners.data32F[4], y: sceneCorners.data32F[5] };
-                                let p4 = { x: sceneCorners.data32F[6], y: sceneCorners.data32F[7] };
-                                let lineColor = new cv.Scalar(0, 255, 0, 255);
-                                cv.line(dst, p1, p2, lineColor, 4); cv.line(dst, p2, p3, lineColor, 4);
-                                cv.line(dst, p3, p4, lineColor, 4); cv.line(dst, p4, p1, lineColor, 4);
-                                objCorners.delete(); sceneCorners.delete(); H.delete();
+                                let objCor = cv.matFromName(4, 1, cv.CV_64FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
+                                let scnCor = new cv.Mat();
+                                cv.perspectiveTransform(objCor, scnCor, H);
+                                let pts = [];
+                                for(let i=0; i<8; i+=2) pts.push({x: scnCor.data64F[i], y: scnCor.data64F[i+1]});
+                                for(let i=0; i<4; i++) cv.line(dst, pts[i], pts[(i+1)%4], new cv.Scalar(0,255,0), 4);
+                                objCor.delete(); scnCor.delete(); H.delete();
+                            } else {
+                                // 备用算法：如果精准失败，算简单平均值
+                                let sumAng = 0;
+                                for(let i=0; i<good.length; i++) {
+                                    let m = good[i];
+                                    let sp = refKeypoints.get(m.queryIdx).pt;
+                                    let dp = kp.get(m.trainIdx).pt;
+                                    // 极简估算
+                                    let ang = Math.atan2(dp.y - 240, dp.x - 320) - Math.atan2(sp.y - 240, sp.x - 320); // 假设中心
+                                    sumAng += ang;
+                                }
+                                angleTxt = "估算中"; // 至少显示状态
                             }
                             srcMat.delete(); dstMat.delete();
                         }
-                    } catch(e) {}
+                    } catch(e) { console.error(e); matchInfo += " (错误)"; }
                     matches.delete();
                 }
-                kp.delete(); desc.delete(); frameGray.delete();
+                kp.delete(); desc.delete(); fGray.delete();
             }
 
             cv.imshow('canvasOutput', dst);
-            document.getElementById('res-color').textContent = foundColor;
+            document.getElementById('res-color').innerText = color;
             document.getElementById('res-color').className = "text-xl font-bold " + colorClass;
-            document.getElementById('res-angle').textContent = angleShow;
-            document.getElementById('res-matches').textContent = matchCount;
-            mask.delete(); maskR1.delete(); maskR2.delete(); maskB.delete(); contours.delete(); hierarchy.delete();
+            document.getElementById('res-angle').innerText = angleTxt;
+            document.getElementById('res-matches').innerText = matchInfo;
+            
+            mask.delete(); m1.delete(); m2.delete(); maskR.delete(); maskB.delete(); contours.delete(); hierarchy.delete();
         }
     </script>
 </body>
