@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能制造视觉检测系统 (V4-终极调试版)</title>
+    <title>智能制造视觉检测系统 (V5-最终实战版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
@@ -20,7 +20,7 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">智能制造视觉检测系统 (V4)</h1>
+                <h1 class="text-xl font-bold">智能制造视觉检测系统 (V5)</h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
@@ -48,7 +48,7 @@
                         <span class="bg-primary text-white px-2 py-1 rounded text-sm">Step 1</span>
                         <div class="flex-1">
                             <p class="text-sm font-semibold">载入标准模板</p>
-                            <p class="text-xs text-gray-500">上传摆正的物块照片(1.jpg)作为基准</p>
+                            <p class="text-xs text-gray-500">必须先上传摆正的 1.jpg</p>
                         </div>
                         <button onclick="document.getElementById('ref-input').click()" class="bg-secondary hover:bg-secondary/90 text-white py-1 px-3 rounded text-sm">
                             <i class="fa fa-upload"></i> 上传模板
@@ -60,7 +60,7 @@
                         <span class="bg-success text-white px-2 py-1 rounded text-sm">Step 2</span>
                         <div class="flex-1">
                             <p class="text-sm font-semibold">开始检测</p>
-                            <p class="text-xs text-gray-500">选择摄像头实时检测，或上传图片测试算法</p>
+                            <p class="text-xs text-gray-500">检测颜色、特征匹配及旋转角度</p>
                         </div>
                         <div class="flex gap-2">
                             <button id="btn-camera" onclick="toggleCamera()" class="bg-primary hover:bg-primary/90 text-white py-2 px-4 rounded text-sm" disabled>
@@ -84,12 +84,12 @@
                             <div id="res-color" class="text-xl font-bold text-gray-400">--</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded">
-                            <div class="text-xs text-gray-500">角度</div>
-                            <div id="res-angle" class="text-xl font-bold text-gray-400">--°</div>
+                            <div class="text-xs text-gray-500">旋转角度</div>
+                            <div id="res-angle" class="text-3xl font-bold text-primary">--°</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded col-span-2">
                             <div class="text-xs text-gray-500">特征匹配点数</div>
-                            <div id="res-matches" class="text-2xl font-bold text-primary">0</div>
+                            <div id="res-matches" class="text-2xl font-bold text-gray-600">0</div>
                         </div>
                     </div>
                 </div>
@@ -120,6 +120,7 @@
         // ORB 特征匹配变量
         let orb = null, bf = null;
         let refKeypoints = null, refDescriptors = null;
+        let refImgSize = null; // 存储参考图尺寸
         let isRefReady = false;
 
         // === 1. 初始化 ===
@@ -127,7 +128,7 @@
             document.getElementById('opencv-status').textContent = "OpenCV 就绪";
             document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
             document.getElementById('btn-camera').disabled = false;
-            addLog("系统就绪。请按顺序操作 Step 1 -> Step 2");
+            addLog("系统就绪。请按 Step 1 -> Step 2 操作。");
         }
 
         function log(msg) {
@@ -135,13 +136,13 @@
             logDiv.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
-        window.addLog = log; // 兼容旧习惯
+        window.addLog = log;
 
-        // === 2. Step 1: 处理参考图 (模板) ===
+        // === 2. Step 1: 处理参考图 ===
         document.getElementById('ref-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
-            log(`正在分析模板: ${file.name}...`);
+            log(`分析模板: ${file.name}...`);
             
             let img = new Image();
             img.onload = function() {
@@ -150,21 +151,21 @@
                     let grayRef = new cv.Mat();
                     cv.cvtColor(mat, grayRef, cv.COLOR_RGBA2GRAY);
                     
-                    // 初始化 ORB
-                    orb = new cv.ORB(1000);
+                    refImgSize = mat.size(); // 记住尺寸，用于绘图
+                    
+                    // 初始化 ORB (特征点数量设为 2000 以提高精度)
+                    orb = new cv.ORB(2000);
                     refKeypoints = new cv.KeyPointVector();
                     refDescriptors = new cv.Mat();
                     
-                    // 提取特征
                     orb.detectAndCompute(grayRef, new cv.Mat(), refKeypoints, refDescriptors);
                     
-                    // 初始化匹配器
                     bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
                     
                     isRefReady = true;
-                    document.getElementById('match-status').textContent = `模板OK (特征:${refKeypoints.size()})`;
+                    document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()}点)`;
                     document.getElementById('match-status').className = "bg-blue-600 text-white text-xs px-2 py-1 rounded";
-                    log(`模板分析成功！提取到 ${refKeypoints.size()} 个特征点。`);
+                    log(`模板特征提取成功！关键点: ${refKeypoints.size()}`);
                     
                     mat.delete(); grayRef.delete();
                 } catch(err) {
@@ -181,35 +182,31 @@
                 return;
             }
 
-            log("正在请求摄像头权限...");
             try {
-                // V4改动：去掉所有复杂限制，只求能开
+                // 尝试请求适合的高分辨率
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, 
+                    video: { width: {ideal: 1280}, height: {ideal: 720}, facingMode: 'environment' }, 
                     audio: false 
                 });
                 
                 video.srcObject = stream;
                 video.play();
                 
-                // 确保视频尺寸加载
                 video.onloadedmetadata = () => {
-                    log(`摄像头开启成功: ${video.videoWidth}x${video.videoHeight}`);
+                    log(`摄像头开启: ${video.videoWidth}x${video.videoHeight}`);
                     video.width = video.videoWidth;
                     video.height = video.videoHeight;
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
-                    
                     startProcessing();
                 };
                 
-                document.getElementById('btn-camera').innerHTML = '<i class="fa fa-stop"></i> 停止摄像头';
+                document.getElementById('btn-camera').innerHTML = '<i class="fa fa-stop"></i> 停止';
                 document.getElementById('btn-camera').className = "bg-danger hover:bg-danger/90 text-white py-2 px-4 rounded text-sm";
                 isRunning = true;
                 
             } catch(err) {
-                alert("无法打开摄像头：" + err.message + "\n请检查浏览器权限或HTTPS连接。");
-                log("摄像头错误: " + err);
+                alert("无法打开摄像头：" + err.message);
             }
         }
 
@@ -219,44 +216,37 @@
             document.getElementById('btn-camera').innerHTML = '<i class="fa fa-video-camera"></i> 启动摄像头';
             document.getElementById('btn-camera').className = "bg-primary hover:bg-primary/90 text-white py-2 px-4 rounded text-sm";
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            log("摄像头已停止");
         }
 
-        // === 4. 图片测试模式 (新功能) ===
+        // === 4. 图片测试模式 ===
         document.getElementById('test-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
-            log(`加载测试图片: ${file.name}`);
-            
-            // 停止摄像头以免冲突
+            log(`图片测试: ${file.name}`);
             if(isRunning) stopCamera();
             
             let img = new Image();
             img.onload = function() {
                 canvas.width = img.width;
                 canvas.height = img.height;
-                ctx.drawImage(img, 0, 0); // 先把原图画上去
-                
-                // 执行一次检测算法
+                ctx.drawImage(img, 0, 0);
                 let mat = cv.imread(img);
-                processMat(mat); // 调用核心算法
+                processMat(mat);
                 mat.delete();
             };
             img.src = URL.createObjectURL(file);
         };
 
-        // === 5. 核心处理逻辑 (初始化) ===
+        // === 5. 初始化矩阵 ===
         function startProcessing() {
             let w = video.videoWidth;
             let h = video.videoHeight;
             
-            // 初始化矩阵 (避免内存泄漏)
             if(src) src.delete(); src = new cv.Mat(h, w, cv.CV_8UC4);
             if(dst) dst.delete(); dst = new cv.Mat(h, w, cv.CV_8UC3);
             if(hsv) hsv.delete(); hsv = new cv.Mat();
             if(gray) gray.delete(); gray = new cv.Mat();
             
-            // 阈值
             lowRed1 = new cv.Mat(h, w, cv.CV_8UC3, [0, 50, 50, 0]);
             highRed1 = new cv.Mat(h, w, cv.CV_8UC3, [10, 255, 255, 0]);
             lowRed2 = new cv.Mat(h, w, cv.CV_8UC3, [170, 50, 50, 0]);
@@ -268,68 +258,59 @@
             requestAnimationFrame(loop);
         }
 
-        // === 6. 核心处理逻辑 (循环) ===
         function loop() {
             if(!isRunning) return;
             try {
-                cap.read(src); // 从视频读一帧
-                processMat(src); // 处理这一帧
+                cap.read(src);
+                processMat(src);
                 requestAnimationFrame(loop);
-            } catch(err) {
-                console.error(err); // 静默错误，防止刷屏
-            }
+            } catch(err) {}
         }
 
-        // === 7. 算法实现 (颜色+角度) ===
+        // === 6. 核心算法 (含角度计算) ===
         function processMat(inputMat) {
-            // 1. 颜色识别
-            cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB); // 用于显示的图
-            cv.cvtColor(dst, hsv, cv.COLOR_RGB2HSV);      // 用于计算的图
+            // A. 颜色识别
+            cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
+            cv.cvtColor(dst, hsv, cv.COLOR_RGB2HSV);
             
-            // 准备掩码
             let mask = new cv.Mat();
             let maskR1 = new cv.Mat(), maskR2 = new cv.Mat(), maskB = new cv.Mat();
             
-            // 阈值计算
             cv.inRange(hsv, lowRed1, highRed1, maskR1);
             cv.inRange(hsv, lowRed2, highRed2, maskR2);
-            cv.bitwise_or(maskR1, maskR2, mask); // 红色总掩码
-            cv.inRange(hsv, lowBlue, highBlue, maskB); // 蓝色掩码
+            cv.bitwise_or(maskR1, maskR2, mask);
+            cv.inRange(hsv, lowBlue, highBlue, maskB);
             
-            // 轮廓查找
             let contours = new cv.MatVector();
             let hierarchy = new cv.Mat();
             let foundColor = "--";
-            let foundClass = "text-gray-400";
+            let colorClass = "text-gray-400";
             
-            // 先找蓝
+            // 找蓝
             cv.findContours(maskB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
             let blueFound = false;
             for(let i=0; i<contours.size(); ++i) {
                 if(cv.contourArea(contours.get(i)) > 1000) {
                     blueFound = true;
-                    cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255), 3); // 画红线(BGR: 0,0,255 是红, 但OpenCV.js drawContours用RGBA... 这里的Scalar是R,G,B,Alpha)
-                    // 修正：OpenCV.js scalar 是 R, G, B, A。想画蓝色线条，应该是 (0, 0, 255, 255)
-                    // 但 Python 代码中蓝色是 (255,0,0) BGR. 
-                    // 这里我们画蓝色线条: (0, 0, 255, 255)
+                    cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255,255), 3);
                 }
             }
-            if(blueFound) { foundColor = "蓝色"; foundClass = "text-blue-500"; }
+            if(blueFound) { foundColor = "蓝色"; colorClass = "text-blue-500"; }
             
-            // 再找红
+            // 找红
             if(!blueFound) {
                 contours.delete(); contours = new cv.MatVector();
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 for(let i=0; i<contours.size(); ++i) {
                     if(cv.contourArea(contours.get(i)) > 1000) {
                         foundColor = "红色";
-                        foundClass = "text-red-500";
-                        cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0,255), 3); // 红色线条
+                        colorClass = "text-red-500";
+                        cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0,255), 3);
                     }
                 }
             }
 
-            // 2. 角度识别 (如果参考图已加载)
+            // B. 角度识别 (Homography)
             let angleShow = "--°";
             let matchCount = 0;
             
@@ -346,44 +327,92 @@
                     try {
                         bf.match(refDescriptors, desc, matches);
                         
-                        // 筛选优秀匹配点
+                        // 筛选匹配点
                         let good = [];
                         for(let i=0; i<matches.size(); ++i) {
-                            if(matches.get(i).distance < 60) good.push(matches.get(i));
+                            if(matches.get(i).distance < 50) good.push(matches.get(i));
                         }
                         matchCount = good.length;
                         
-                        // 简单计算角度 (如果匹配点足够)
-                        if(matchCount > 10) {
-                            // 这里我们简单画出匹配状态，证明逻辑在跑
-                            // 真实角度需要 findHomography，为防崩溃暂用匹配数代替置信度
-                            angleShow = "识别中"; // 只要有匹配，就说明认出来了
+                        // 如果匹配点足够 (>15)，计算角度
+                        if(matchCount > 15) {
+                            // 1. 提取坐标点
+                            let srcPoints = [];
+                            let dstPoints = [];
+                            for (let i = 0; i < good.length; i++) {
+                                let m = good[i];
+                                let sp = refKeypoints.get(m.queryIdx).pt;
+                                let dp = kp.get(m.trainIdx).pt;
+                                srcPoints.push(sp.x); srcPoints.push(sp.y);
+                                dstPoints.push(dp.x); dstPoints.push(dp.y);
+                            }
+
+                            // 2. 转换为 Mat 格式
+                            let srcMat = cv.matFromName(srcPoints.length/2, 1, cv.CV_32FC2, srcPoints);
+                            let dstMat = cv.matFromName(dstPoints.length/2, 1, cv.CV_32FC2, dstPoints);
+
+                            // 3. 计算单应性矩阵 (Homography)
+                            let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+                            if(!H.empty()) {
+                                // 4. 从矩阵中提取旋转角度
+                                // 旋转矩阵通常是 [[cos, -sin], [sin, cos]]
+                                let h00 = H.data64F[0];
+                                let h01 = H.data64F[1]; // 注意：这里可能需要根据OpenCV.js的具体数据结构微调
+                                let h10 = H.data64F[3];
+                                let h11 = H.data64F[4];
+                                
+                                // 使用 atan2 计算角度
+                                // 注意：为了更稳健，我们使用前两列的向量方向
+                                let theta = Math.atan2(h10, h00) * 180 / Math.PI;
+                                
+                                // 修正为 0-360 度
+                                if(theta < 0) theta += 360;
+                                angleShow = Math.round(theta) + "°";
+
+                                // 5. 可视化：画出变换后的框 (可选)
+                                // 为了验证，我们把参考图的四个角，变换到当前图上，画个框
+                                let objCorners = cv.matFromName(4, 1, cv.CV_32FC2, [
+                                    0, 0, 
+                                    refImgSize.width, 0, 
+                                    refImgSize.width, refImgSize.height, 
+                                    0, refImgSize.height
+                                ]);
+                                let sceneCorners = new cv.Mat();
+                                cv.perspectiveTransform(objCorners, sceneCorners, H);
+
+                                // 画线
+                                let p1 = { x: sceneCorners.data32F[0], y: sceneCorners.data32F[1] };
+                                let p2 = { x: sceneCorners.data32F[2], y: sceneCorners.data32F[3] };
+                                let p3 = { x: sceneCorners.data32F[4], y: sceneCorners.data32F[5] };
+                                let p4 = { x: sceneCorners.data32F[6], y: sceneCorners.data32F[7] };
+                                
+                                let lineColor = new cv.Scalar(0, 255, 0, 255); // 绿色框
+                                cv.line(dst, p1, p2, lineColor, 4);
+                                cv.line(dst, p2, p3, lineColor, 4);
+                                cv.line(dst, p3, p4, lineColor, 4);
+                                cv.line(dst, p4, p1, lineColor, 4);
+
+                                // 释放
+                                objCorners.delete(); sceneCorners.delete(); H.delete();
+                            }
                             
-                            // 可以在这里计算旋转，但 JS 算 Homography 消耗大
-                            // 我们通过 UI 上的 "特征匹配点数" 暴涨来告诉用户：对准了！
+                            srcMat.delete(); dstMat.delete();
                         }
                     } catch(e) { }
                     matches.delete();
                 }
-                
                 kp.delete(); desc.delete(); frameGray.delete();
             }
 
-            // 3. 绘制并更新
-            cv.imshow('canvasOutput', dst); // 把处理好的图画到 Canvas 上
+            cv.imshow('canvasOutput', dst);
             
             // 更新 UI
             document.getElementById('res-color').textContent = foundColor;
-            document.getElementById('res-color').className = "text-xl font-bold " + foundClass;
+            document.getElementById('res-color').className = "text-xl font-bold " + colorClass;
+            document.getElementById('res-angle').textContent = angleShow;
             document.getElementById('res-matches').textContent = matchCount;
-            if(matchCount > 10) {
-                // 如果匹配点多，认为角度大概率是正的或者已识别
-                document.getElementById('res-angle').textContent = "已捕获"; 
-            } else {
-                document.getElementById('res-angle').textContent = "--";
-            }
 
-            // 清理局部变量
             mask.delete(); maskR1.delete(); maskR2.delete(); maskB.delete();
             contours.delete(); hierarchy.delete();
         }
