@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>智能制造视觉检测系统 (V10)</title>
+    <title>智能制造视觉检测系统 (V11)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
@@ -21,7 +21,7 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded ml-2">V10 (ROI聚焦)</span></h1>
+                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded ml-2">V11 (稳定修复)</span></h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
@@ -75,7 +75,7 @@
                             <div id="res-angle" class="text-3xl font-bold text-primary">--°</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded col-span-2">
-                            <div class="text-xs text-gray-500">匹配特征点 (需>30)</div>
+                            <div class="text-xs text-gray-500">特征匹配点数</div>
                             <div id="res-matches" class="text-lg font-bold text-gray-600">0</div>
                         </div>
                     </div>
@@ -93,9 +93,15 @@
         let ctx = canvas.getContext('2d');
         let stream = null, isRunning = false;
         
-        let src = null, dst = null, roiMat = null, hsv = null, blurred = null;
+        // 核心变量
+        let src = null, dst = null, mask = null, maskedSrc = null; 
+        let hsv = null, blurred = null, gray = null;
         let cap = null;
+        
+        // 阈值
         let lowRed1, highRed1, lowRed2, highRed2, lowBlue, highBlue;
+        
+        // ORB
         let orb = null, matcher = null;
         let refKeypoints = null, refDescriptors = null;
         let refImgSize = null;
@@ -105,7 +111,7 @@
             document.getElementById('opencv-status').textContent = "OpenCV 就绪";
             document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
             document.getElementById('btn-camera').disabled = false;
-            log("V10 就绪。已启用 ROI 聚焦区域。");
+            log("V11 系统就绪。");
         }
 
         function log(msg) {
@@ -126,11 +132,13 @@
                     cv.cvtColor(mat, grayRef, cv.COLOR_RGBA2GRAY);
                     refImgSize = mat.size();
                     
-                    orb = new cv.ORB(2000); 
-                    refKeypoints = new cv.KeyPointVector();
-                    refDescriptors = new cv.Mat();
+                    if(orb) orb.delete(); orb = new cv.ORB(2000); 
+                    if(refKeypoints) refKeypoints.delete(); refKeypoints = new cv.KeyPointVector();
+                    if(refDescriptors) refDescriptors.delete(); refDescriptors = new cv.Mat();
+                    
                     orb.detectAndCompute(grayRef, new cv.Mat(), refKeypoints, refDescriptors);
-                    matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
+                    
+                    if(matcher) matcher.delete(); matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
                     
                     isRefReady = true;
                     document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()})`;
@@ -142,32 +150,30 @@
             img.src = URL.createObjectURL(file);
         };
 
-        // 修复图片测试逻辑：确保在 Canvas 渲染后读取数据
+        // 修复后的图片测试
         document.getElementById('test-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
             stopCamera();
-            log(`测试图片: ${file.name}`);
+            log(`加载图片: ${file.name}`);
             
             let img = new Image();
             img.onload = function() {
                 canvas.width = img.width; 
                 canvas.height = img.height;
-                video.style.display = 'none'; // 隐藏video标签避免干扰
+                video.style.display = 'none';
                 
-                // 绘制图片到 Canvas
                 ctx.drawImage(img, 0, 0);
                 
-                // 延迟一帧执行，确保 Canvas 渲染完成
-                requestAnimationFrame(() => {
+                setTimeout(() => {
                     try {
-                        let mat = cv.imread(canvas); // 直接从 Canvas 读取
+                        let mat = cv.imread(canvas);
                         initMatrices(mat.cols, mat.rows);
                         processMat(mat);
                         mat.delete();
-                        log("图片识别完成");
+                        log("图片识别结束");
                     } catch(err) { log("图片识别错误: " + err); }
-                });
+                }, 100);
             };
             img.src = URL.createObjectURL(file);
         };
@@ -203,19 +209,26 @@
         }
 
         function initMatrices(w, h) {
+            // 安全清理
             if(src) src.delete(); src = new cv.Mat(h, w, cv.CV_8UC4);
             if(dst) dst.delete(); dst = new cv.Mat(h, w, cv.CV_8UC3);
-            if(roiMat) roiMat.delete(); roiMat = new cv.Mat(h, w, cv.CV_8UC3); // 聚焦区域
+            if(mask) mask.delete(); mask = new cv.Mat(h, w, cv.CV_8UC1);
+            if(maskedSrc) maskedSrc.delete(); maskedSrc = new cv.Mat(h, w, cv.CV_8UC3);
             if(blurred) blurred = new cv.Mat(h, w, cv.CV_8UC3);
             if(hsv) hsv.delete(); hsv = new cv.Mat();
-            if(cap) delete cap; cap = new cv.VideoCapture(video); // 重新初始化 Cap
-
+            if(gray) gray.delete(); gray = new cv.Mat();
+            
+            // 阈值
             lowRed1 = new cv.Mat(h, w, cv.CV_8UC3, [0, 50, 50, 0]);
             highRed1 = new cv.Mat(h, w, cv.CV_8UC3, [10, 255, 255, 0]);
             lowRed2 = new cv.Mat(h, w, cv.CV_8UC3, [170, 50, 50, 0]);
             highRed2 = new cv.Mat(h, w, cv.CV_8UC3, [180, 255, 255, 0]);
             lowBlue = new cv.Mat(h, w, cv.CV_8UC3, [100, 50, 50, 0]);
             highBlue = new cv.Mat(h, w, cv.CV_8UC3, [125, 255, 255, 0]);
+            
+            // Cap 如果需要
+            if(cap) { try{cap.delete();}catch(e){} }
+            cap = new cv.VideoCapture(video);
         }
 
         function startProcessing() {
@@ -224,73 +237,81 @@
 
         function loop() {
             if(!isRunning) return;
-            try { cap.read(src); processMat(src); requestAnimationFrame(loop); } catch(err) {}
+            try { 
+                cap.read(src); 
+                processMat(src); 
+            } catch(err) {
+                // 不要在循环里alert，否则会死机，只打印
+                console.error("Loop error:", err);
+            }
+            requestAnimationFrame(loop);
         }
 
         function processMat(inputMat) {
-            // A. 预处理
+            // A. 预处理与遮罩 (Python: img_mask逻辑)
             cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
 
-            // === 核心修复：复刻 Python 的 img_mask 逻辑 ===
-            // 只保留中心区域，其余涂黑。模拟 Python: img_mask[150:390, 180:425] = 1
-            // 我们动态计算中心区域 (大约是宽度的 38% 到 66%，高度的 31% 到 81%)
+            // 1. 创建黑底 (mask全黑)
+            mask.setTo([0, 0, 0, 0]);
+            
+            // 2. 挖出白色矩形 (模拟 Python ROI: [150:390, 180:425])
+            // 我们按比例计算，使其适配不同分辨率
             let w = dst.cols;
             let h = dst.rows;
-            let x1 = Math.floor(w * 0.28); // 180/640 ≈ 0.28
-            let x2 = Math.floor(w * 0.66); // 425/640 ≈ 0.66
-            let y1 = Math.floor(h * 0.31); // 150/480 ≈ 0.31
-            let y2 = Math.floor(h * 0.81); // 390/480 ≈ 0.81
-            
-            // 创建全黑图像
-            roiMat.setTo([0, 0, 0, 0]);
-            
-            // 提取 dst 的中心 ROI
-            let roiRect = new cv.Rect(x1, y1, x2 - x1, y2 - y1);
-            let dstRoi = dst.roi(roiRect);
-            let roiMatRoi = roiMat.roi(roiRect);
-            
-            // 将 dst 中心复制到 roiMat 中心
-            dstRoi.copyTo(roiMatRoi);
-            
-            dstRoi.delete(); roiMatRoi.delete();
-            // ============================================
+            let p1 = { x: Math.floor(w * 0.28), y: Math.floor(h * 0.31) };
+            let p2 = { x: Math.floor(w * 0.66), y: Math.floor(h * 0.81) };
+            cv.rectangle(mask, p1, p2, [255, 255, 255, 255], -1);
 
-            // 使用 roiMat (只有中心有图，周围全黑) 进行后续处理
-            cv.GaussianBlur(roiMat, blurred, new cv.Size(9, 9), 2, 2);
+            // 3. 应用遮罩 (Python: cv2.multiply / bitwise_and)
+            // 这步之后，maskedSrc 只有中间有图像，周围全黑
+            maskedSrc.setTo([0,0,0,0]); // 清空
+            cv.bitwise_and(dst, dst, maskedSrc, mask);
+
+            // B. 颜色识别 (使用 MaskedSrc，消除背景干扰)
+            cv.GaussianBlur(maskedSrc, blurred, new cv.Size(9, 9), 2, 2);
             cv.cvtColor(blurred, hsv, cv.COLOR_RGB2HSV);
             
-            let mask = new cv.Mat(), maskR = new cv.Mat(), maskB = new cv.Mat();
-            let m1 = new cv.Mat(), m2 = new cv.Mat();
+            let m1 = new cv.Mat(), m2 = new cv.Mat(), mR = new cv.Mat(), mB = new cv.Mat();
             cv.inRange(hsv, lowRed1, highRed1, m1);
             cv.inRange(hsv, lowRed2, highRed2, m2);
-            cv.bitwise_or(m1, m2, maskR);
-            cv.inRange(hsv, lowBlue, highBlue, maskB);
+            cv.bitwise_or(m1, m2, mR);
+            cv.inRange(hsv, lowBlue, highBlue, mB);
             
             let contours = new cv.MatVector(), hierarchy = new cv.Mat();
             let color = "--", colorClass = "text-gray-400";
             
-            // 检测颜色 (使用 roiMat，背景黑了，干扰就没了)
-            cv.findContours(maskB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            // 检测蓝色
+            cv.findContours(mB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
             let bFound = false;
             for(let i=0; i<contours.size(); ++i) {
-                if(cv.contourArea(contours.get(i)) > 1800) { bFound = true; cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255), 3); }
+                if(cv.contourArea(contours.get(i)) > 1800) { 
+                    bFound = true; 
+                    // 画在原图 dst 上显示
+                    cv.drawContours(dst, contours, i, new cv.Scalar(0,0,255), 3); 
+                }
             }
             if(bFound) { color = "蓝色"; colorClass = "text-blue-500"; }
             else {
+                // 检测红色
                 contours.delete(); contours = new cv.MatVector();
-                cv.findContours(maskR, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                cv.findContours(mR, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 for(let i=0; i<contours.size(); ++i) {
-                    if(cv.contourArea(contours.get(i)) > 1800) { color = "红色"; colorClass = "text-red-500"; cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0), 3); }
+                    if(cv.contourArea(contours.get(i)) > 1800) { 
+                        color = "红色"; colorClass = "text-red-500"; 
+                        cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0), 3); 
+                    }
                 }
             }
 
-            // ORB 匹配
+            // C. 角度计算 (同样使用 MaskedSrc 避免背景干扰匹配)
+            // 用户反馈角度乱跳，说明背景特征点太多。
+            // 使用 maskedSrc 进行 ORB，强制只匹配中间的物块！
             let angleTxt = "--°";
             let matchInfo = "0";
             
             if(isRefReady) {
                 let fGray = new cv.Mat();
-                cv.cvtColor(roiMat, fGray, cv.COLOR_RGBA2GRAY); // 注意：这里也用 roiMat 对应的灰度
+                cv.cvtColor(maskedSrc, fGray, cv.COLOR_RGB2GRAY);
                 
                 let kp = new cv.KeyPointVector(), desc = new cv.Mat();
                 orb.detectAndCompute(fGray, new cv.Mat(), kp, desc);
@@ -308,7 +329,7 @@
                         
                         matchInfo = good.length;
                         
-                        if(good.length > 30) {
+                        if(good.length > 20) { // 降低一点门槛
                             let srcPts = [], dstPts = [];
                             for(let i=0; i<good.length; i++) {
                                 let m = good[i];
@@ -318,8 +339,8 @@
                                 dstPts.push(dp.x); dstPts.push(dp.y);
                             }
                             
-                            let srcMat = cv.matFromName(good.length, 1, cv.CV_32FC2, srcPts);
-                            let dstMat = cv.matFromName(good.length, 1, cv.CV_32FC2, dstPts);
+                            let srcMat = cv.matFromName(good.length, 1, cv.CV_64FC2, srcPts);
+                            let dstMat = cv.matFromName(good.length, 1, cv.CV_64FC2, dstPts);
                             let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
                             
                             if(!H.empty()) {
@@ -328,29 +349,30 @@
                                 let theta = -Math.atan2(m01, m00) * 180 / Math.PI;
                                 angleTxt = Math.round(theta) + "°";
                                 
-                                // 可视化
-                                let objCor = cv.matFromName(4, 1, cv.CV_32FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
+                                // 可视化框
+                                let objCor = cv.matFromName(4, 1, cv.CV_64FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
                                 let scnCor = new cv.Mat();
                                 cv.perspectiveTransform(objCor, scnCor, H);
                                 let p = [];
-                                for(let i=0; i<8; i++) p.push(scnCor.data32F[i]);
+                                for(let i=0; i<8; i+=2) p.push({x: scnCor.data64F[i], y: scnCor.data64F[i+1]});
                                 
-                                cv.line(dst, {x:p[0], y:p[1]}, {x:p[2], y:p[3]}, [0,255,0,255], 4);
-                                cv.line(dst, {x:p[2], y:p[3]}, {x:p[4], y:p[5]}, [0,255,0,255], 4);
-                                cv.line(dst, {x:p[4], y:p[5]}, {x:p[6], y:p[7]}, [0,255,0,255], 4);
-                                cv.line(dst, {x:p[6], y:p[7]}, {x:p[0], y:p[1]}, [0,255,0,255], 4);
+                                cv.line(dst, p[0], p[1], [0,255,0,255], 4);
+                                cv.line(dst, p[1], p[2], [0,255,0,255], 4);
+                                cv.line(dst, p[2], p[3], [0,255,0,255], 4);
+                                cv.line(dst, p[3], p[0], [0,255,0,255], 4);
+                                
                                 objCor.delete(); scnCor.delete(); H.delete();
                             }
                             srcMat.delete(); dstMat.delete();
                         }
-                    } catch(e) {}
+                    } catch(e) { console.error("Homography error", e); }
                     matches.delete();
                 }
                 kp.delete(); desc.delete(); fGray.delete();
             }
 
-            // 画出 ROI 区域框，让用户知道要把东西放哪里
-            cv.rectangle(dst, {x:x1, y:y1}, {x:x2, y:y2}, [255, 255, 0, 255], 2);
+            // 画出 ROI 区域框，提示用户
+            cv.rectangle(dst, p1, p2, [255, 255, 0, 255], 2);
 
             cv.imshow('canvasOutput', dst);
             document.getElementById('res-color').innerText = color;
@@ -358,7 +380,7 @@
             document.getElementById('res-angle').innerText = angleTxt;
             document.getElementById('res-matches').innerText = matchInfo;
             
-            mask.delete(); m1.delete(); m2.delete(); maskR.delete(); maskB.delete(); contours.delete(); hierarchy.delete();
+            m1.delete(); m2.delete(); mR.delete(); mB.delete(); contours.delete(); hierarchy.delete();
         }
     </script>
 </body>
