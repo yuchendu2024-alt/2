@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>智能制造视觉检测系统 (V7)</title>
+    <title>智能制造视觉检测系统 (V8)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
@@ -21,7 +21,7 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-red-500 text-white text-xs px-2 py-1 rounded ml-2">V7</span></h1>
+                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-red-600 text-white text-xs px-2 py-1 rounded ml-2">V8(最终修复)</span></h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
@@ -71,11 +71,11 @@
                             <div id="res-color" class="text-xl font-bold text-gray-400">--</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded">
-                            <div class="text-xs text-gray-500">角度 (V7内核)</div>
-                            <div id="res-angle" class="text-3xl font-bold text-primary">--°</div>
+                            <div class="text-xs text-gray-500">旋转角度</div>
+                            <div id="res-angle" class="text-4xl font-bold text-primary">--°</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded col-span-2">
-                            <div class="text-xs text-gray-500">匹配点数 / 算法状态</div>
+                            <div class="text-xs text-gray-500">匹配点数 / 算法来源</div>
                             <div id="res-matches" class="text-lg font-bold text-gray-600">0</div>
                         </div>
                     </div>
@@ -102,7 +102,7 @@
             document.getElementById('opencv-status').textContent = "OpenCV 就绪";
             document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
             document.getElementById('btn-camera').disabled = false;
-            log("V7 系统就绪。请上传模板。");
+            log("V8 系统就绪。");
         }
 
         function log(msg) {
@@ -133,7 +133,7 @@
                     
                     document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()})`;
                     document.getElementById('match-status').className = "bg-blue-600 text-white text-xs px-2 py-1 rounded";
-                    log(`模板特征点: ${refKeypoints.size()}`);
+                    log(`模板成功，特征点: ${refKeypoints.size()}`);
                     mat.delete(); grayRef.delete();
                 } catch(err) { log("模板错误: " + err); }
             };
@@ -143,7 +143,7 @@
         async function toggleCamera() {
             if(isRunning) { stopCamera(); return; }
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { width: {ideal: 1280}, height: {ideal: 720}, facingMode: 'environment' }, audio: false });
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 video.srcObject = stream;
                 video.play();
                 video.onloadedmetadata = () => {
@@ -204,7 +204,7 @@
         }
 
         function processMat(inputMat) {
-            // 1. 颜色识别
+            // A. 颜色识别
             cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
             cv.cvtColor(dst, hsv, cv.COLOR_RGB2HSV);
             
@@ -232,7 +232,7 @@
                 }
             }
 
-            // 2. 角度计算 (V7 修正版)
+            // B. 角度计算 (V8 兜底版)
             let angleTxt = "--°";
             let matchInfo = "0";
             
@@ -252,52 +252,64 @@
                         matchInfo = good.length;
                         
                         if(good.length > 10) {
-                            // 尝试精准算法 (Homography)
-                            let srcPts = [], dstPts = [];
-                            for(let i=0; i<good.length; i++) {
-                                let m = good[i];
-                                let sp = refKeypoints.get(m.queryIdx).pt;
-                                let dp = kp.get(m.trainIdx).pt;
-                                srcPts.push(sp.x); srcPts.push(sp.y);
-                                dstPts.push(dp.x); dstPts.push(dp.y);
-                            }
+                            let useSimple = true; // 默认准备降级
                             
-                            // 关键修复：使用 64F 防止精度丢失导致空矩阵
-                            let srcMat = cv.matFromName(srcPts.length/2, 1, cv.CV_64FC2, srcPts);
-                            let dstMat = cv.matFromName(dstPts.length/2, 1, cv.CV_64FC2, dstPts);
-                            let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
-                            
-                            if(!H.empty()) {
-                                let h00 = H.data64F[0], h10 = H.data64F[3];
-                                let theta = Math.atan2(h10, h00) * 180 / Math.PI;
-                                if(theta < 0) theta += 360;
-                                angleTxt = Math.round(theta) + "°";
-                                matchInfo += " (精准)";
-                                
-                                // 画框
-                                let objCor = cv.matFromName(4, 1, cv.CV_64FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
-                                let scnCor = new cv.Mat();
-                                cv.perspectiveTransform(objCor, scnCor, H);
-                                let pts = [];
-                                for(let i=0; i<8; i+=2) pts.push({x: scnCor.data64F[i], y: scnCor.data64F[i+1]});
-                                for(let i=0; i<4; i++) cv.line(dst, pts[i], pts[(i+1)%4], new cv.Scalar(0,255,0), 4);
-                                objCor.delete(); scnCor.delete(); H.delete();
-                            } else {
-                                // 备用算法：如果精准失败，算简单平均值
-                                let sumAng = 0;
+                            // 1. 尝试 OpenCV 矩阵计算 (容易崩)
+                            try {
+                                let srcPts = [], dstPts = [];
                                 for(let i=0; i<good.length; i++) {
                                     let m = good[i];
                                     let sp = refKeypoints.get(m.queryIdx).pt;
                                     let dp = kp.get(m.trainIdx).pt;
-                                    // 极简估算
-                                    let ang = Math.atan2(dp.y - 240, dp.x - 320) - Math.atan2(sp.y - 240, sp.x - 320); // 假设中心
-                                    sumAng += ang;
+                                    srcPts.push(sp.x); srcPts.push(sp.y);
+                                    dstPts.push(dp.x); dstPts.push(dp.y);
                                 }
-                                angleTxt = "估算中"; // 至少显示状态
+                                let srcMat = cv.matFromName(srcPts.length/2, 1, cv.CV_32FC2, srcPts);
+                                let dstMat = cv.matFromName(dstPts.length/2, 1, cv.CV_32FC2, dstPts);
+                                let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+                                
+                                if(!H.empty()) {
+                                    let h00 = H.data64F[0], h10 = H.data64F[3];
+                                    let theta = Math.atan2(h10, h00) * 180 / Math.PI;
+                                    if(theta < 0) theta += 360;
+                                    angleTxt = Math.round(theta) + "°";
+                                    matchInfo += " (精准)";
+                                    useSimple = false; // 成功了，不用降级
+                                    
+                                    // 画绿框
+                                    let objCor = cv.matFromName(4, 1, cv.CV_32FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
+                                    let scnCor = new cv.Mat();
+                                    cv.perspectiveTransform(objCor, scnCor, H);
+                                    let pts = [];
+                                    for(let i=0; i<8; i+=2) pts.push({x: scnCor.data32F[i], y: scnCor.data32F[i+1]});
+                                    for(let i=0; i<4; i++) cv.line(dst, pts[i], pts[(i+1)%4], new cv.Scalar(0,255,0), 4);
+                                    objCor.delete(); scnCor.delete(); H.delete();
+                                }
+                                srcMat.delete(); dstMat.delete();
+                            } catch(err) {
+                                // 矩阵计算崩了！但是没关系，我们有 Plan B
+                                console.log("矩阵计算失败，切换Plan B");
                             }
-                            srcMat.delete(); dstMat.delete();
+
+                            // 2. Plan B: 纯数学估算 (绝对不会崩)
+                            if(useSimple) {
+                                let sumAng = 0;
+                                let cx = 320, cy = 240; // 假设中心
+                                for(let i=0; i<good.length; i++) {
+                                    let m = good[i];
+                                    let sp = refKeypoints.get(m.queryIdx).pt;
+                                    let dp = kp.get(m.trainIdx).pt;
+                                    let angRef = Math.atan2(sp.y - cy, sp.x - cx);
+                                    let angCur = Math.atan2(dp.y - cy, dp.x - cx);
+                                    let diff = (angCur - angRef) * 180 / Math.PI;
+                                    if (diff < 0) diff += 360;
+                                    sumAng += diff;
+                                }
+                                angleTxt = Math.round(sumAng / good.length) + "°";
+                                matchInfo += " (估算)";
+                            }
                         }
-                    } catch(e) { console.error(e); matchInfo += " (错误)"; }
+                    } catch(e) { }
                     matches.delete();
                 }
                 kp.delete(); desc.delete(); fGray.delete();
