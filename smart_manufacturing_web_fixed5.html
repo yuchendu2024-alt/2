@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>智能制造视觉检测系统 (V9-Python复刻版)</title>
+    <title>智能制造视觉检测系统 (V10)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
@@ -21,7 +21,7 @@
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded ml-2">V9 (Python内核)</span></h1>
+                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded ml-2">V10 (ROI聚焦)</span></h1>
             </div>
             <div class="flex items-center space-x-4">
                 <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
@@ -64,18 +64,18 @@
 
             <div class="space-y-6">
                 <div class="bg-white rounded-lg shadow-md p-4">
-                    <h2 class="text-lg font-semibold mb-4 border-b pb-2">Python 算法结果</h2>
+                    <h2 class="text-lg font-semibold mb-4 border-b pb-2">检测结果</h2>
                     <div class="grid grid-cols-2 gap-4 text-center">
                         <div class="p-3 bg-gray-50 rounded">
                             <div class="text-xs text-gray-500">颜色</div>
                             <div id="res-color" class="text-xl font-bold text-gray-400">--</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded">
-                            <div class="text-xs text-gray-500">矩阵旋转角 (Theta)</div>
+                            <div class="text-xs text-gray-500">旋转角度</div>
                             <div id="res-angle" class="text-3xl font-bold text-primary">--°</div>
                         </div>
                         <div class="p-3 bg-gray-50 rounded col-span-2">
-                            <div class="text-xs text-gray-500">KNN 匹配点数 (>30 有效)</div>
+                            <div class="text-xs text-gray-500">匹配特征点 (需>30)</div>
                             <div id="res-matches" class="text-lg font-bold text-gray-600">0</div>
                         </div>
                     </div>
@@ -88,18 +88,14 @@
     </main>
 
     <script>
-        // === 全局变量 ===
         let video = document.getElementById('video');
         let canvas = document.getElementById('canvasOutput');
         let ctx = canvas.getContext('2d');
         let stream = null, isRunning = false;
         
-        // OpenCV 变量
-        let src = null, dst = null, hsv = null, gray = null, blurred = null;
+        let src = null, dst = null, roiMat = null, hsv = null, blurred = null;
         let cap = null;
-        // 阈值矩阵
         let lowRed1, highRed1, lowRed2, highRed2, lowBlue, highBlue;
-        // 匹配器变量
         let orb = null, matcher = null;
         let refKeypoints = null, refDescriptors = null;
         let refImgSize = null;
@@ -109,7 +105,7 @@
             document.getElementById('opencv-status').textContent = "OpenCV 就绪";
             document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
             document.getElementById('btn-camera').disabled = false;
-            log("V9 就绪。算法已同步 test999999_fixed.py");
+            log("V10 就绪。已启用 ROI 聚焦区域。");
         }
 
         function log(msg) {
@@ -119,7 +115,6 @@
         }
         window.addLog = log;
 
-        // === 1. 上传模板 (对应 Python: img1 = cv2.imread("1.jpg")) ===
         document.getElementById('ref-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
@@ -131,65 +126,58 @@
                     cv.cvtColor(mat, grayRef, cv.COLOR_RGBA2GRAY);
                     refImgSize = mat.size();
                     
-                    // Python: ORB = cv2.ORB_create()
                     orb = new cv.ORB(2000); 
                     refKeypoints = new cv.KeyPointVector();
                     refDescriptors = new cv.Mat();
                     orb.detectAndCompute(grayRef, new cv.Mat(), refKeypoints, refDescriptors);
-                    
-                    // Python: flann = cv2.FlannBasedMatcher(...) -> Web端用 BFMatcher(Hamming) 替代，效果一致
                     matcher = new cv.BFMatcher(cv.NORM_HAMMING, false);
                     
                     isRefReady = true;
                     document.getElementById('match-status').textContent = `模板OK (${refKeypoints.size()})`;
                     document.getElementById('match-status').className = "bg-blue-600 text-white text-xs px-2 py-1 rounded";
-                    log(`模板提取特征点: ${refKeypoints.size()}`);
-                    
+                    log(`模板成功，特征点: ${refKeypoints.size()}`);
                     mat.delete(); grayRef.delete();
-                } catch(err) { log("模板处理失败: " + err); }
+                } catch(err) { log("模板错误: " + err); }
             };
             img.src = URL.createObjectURL(file);
         };
 
-        // === 2. 图片测试模式 (修复版) ===
+        // 修复图片测试逻辑：确保在 Canvas 渲染后读取数据
         document.getElementById('test-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
-            
-            // 强制停止摄像头，避免资源冲突
             stopCamera();
-            log(`加载测试图片: ${file.name}`);
+            log(`测试图片: ${file.name}`);
             
             let img = new Image();
             img.onload = function() {
-                // 重置画布大小
                 canvas.width = img.width; 
                 canvas.height = img.height;
-                video.width = img.width; // 隐式调整布局
-                video.height = img.height;
+                video.style.display = 'none'; // 隐藏video标签避免干扰
                 
+                // 绘制图片到 Canvas
                 ctx.drawImage(img, 0, 0);
                 
-                // 必须等待 OpenCV 初始化矩阵
-                try {
-                    let mat = cv.imread(img);
-                    initMatrices(mat.cols, mat.rows); // 初始化内存
-                    processMat(mat); // 执行算法
-                    mat.delete();
-                    log("图片检测完成");
-                } catch(err) {
-                    log("图片检测出错: " + err);
-                }
+                // 延迟一帧执行，确保 Canvas 渲染完成
+                requestAnimationFrame(() => {
+                    try {
+                        let mat = cv.imread(canvas); // 直接从 Canvas 读取
+                        initMatrices(mat.cols, mat.rows);
+                        processMat(mat);
+                        mat.delete();
+                        log("图片识别完成");
+                    } catch(err) { log("图片识别错误: " + err); }
+                });
             };
             img.src = URL.createObjectURL(file);
         };
 
-        // === 3. 摄像头控制 ===
         async function toggleCamera() {
             if(isRunning) { stopCamera(); return; }
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
                 video.srcObject = stream;
+                video.style.display = 'block';
                 video.play();
                 video.onloadedmetadata = () => {
                     video.width = video.videoWidth; 
@@ -200,10 +188,10 @@
                     initMatrices(video.videoWidth, video.videoHeight);
                     startProcessing();
                 };
-                document.getElementById('btn-camera').innerText = "停止摄像头";
+                document.getElementById('btn-camera').innerText = "停止";
                 document.getElementById('btn-camera').className = "bg-danger text-white py-2 px-4 rounded text-sm";
                 isRunning = true;
-            } catch(err) { alert("摄像头权限错误: " + err.message); }
+            } catch(err) { alert(err.message); }
         }
 
         function stopCamera() {
@@ -214,15 +202,14 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        // === 4. 内存管理 ===
         function initMatrices(w, h) {
             if(src) src.delete(); src = new cv.Mat(h, w, cv.CV_8UC4);
             if(dst) dst.delete(); dst = new cv.Mat(h, w, cv.CV_8UC3);
+            if(roiMat) roiMat.delete(); roiMat = new cv.Mat(h, w, cv.CV_8UC3); // 聚焦区域
             if(blurred) blurred = new cv.Mat(h, w, cv.CV_8UC3);
             if(hsv) hsv.delete(); hsv = new cv.Mat();
-            if(gray) gray.delete(); gray = new cv.Mat();
-            
-            // 阈值 (完全对应 Python np.array)
+            if(cap) delete cap; cap = new cv.VideoCapture(video); // 重新初始化 Cap
+
             lowRed1 = new cv.Mat(h, w, cv.CV_8UC3, [0, 50, 50, 0]);
             highRed1 = new cv.Mat(h, w, cv.CV_8UC3, [10, 255, 255, 0]);
             lowRed2 = new cv.Mat(h, w, cv.CV_8UC3, [170, 50, 50, 0]);
@@ -232,7 +219,6 @@
         }
 
         function startProcessing() {
-            cap = new cv.VideoCapture(video);
             requestAnimationFrame(loop);
         }
 
@@ -241,15 +227,36 @@
             try { cap.read(src); processMat(src); requestAnimationFrame(loop); } catch(err) {}
         }
 
-        // === 5. 核心算法实现 (Python 1:1 复刻) ===
         function processMat(inputMat) {
             // A. 预处理
             cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
+
+            // === 核心修复：复刻 Python 的 img_mask 逻辑 ===
+            // 只保留中心区域，其余涂黑。模拟 Python: img_mask[150:390, 180:425] = 1
+            // 我们动态计算中心区域 (大约是宽度的 38% 到 66%，高度的 31% 到 81%)
+            let w = dst.cols;
+            let h = dst.rows;
+            let x1 = Math.floor(w * 0.28); // 180/640 ≈ 0.28
+            let x2 = Math.floor(w * 0.66); // 425/640 ≈ 0.66
+            let y1 = Math.floor(h * 0.31); // 150/480 ≈ 0.31
+            let y2 = Math.floor(h * 0.81); // 390/480 ≈ 0.81
             
-            // Python: img_blur = cv2.GaussianBlur(img2, (9, 9), 2)
-            cv.GaussianBlur(dst, blurred, new cv.Size(9, 9), 2, 2);
+            // 创建全黑图像
+            roiMat.setTo([0, 0, 0, 0]);
             
-            // B. 颜色识别 (与 Python 一致)
+            // 提取 dst 的中心 ROI
+            let roiRect = new cv.Rect(x1, y1, x2 - x1, y2 - y1);
+            let dstRoi = dst.roi(roiRect);
+            let roiMatRoi = roiMat.roi(roiRect);
+            
+            // 将 dst 中心复制到 roiMat 中心
+            dstRoi.copyTo(roiMatRoi);
+            
+            dstRoi.delete(); roiMatRoi.delete();
+            // ============================================
+
+            // 使用 roiMat (只有中心有图，周围全黑) 进行后续处理
+            cv.GaussianBlur(roiMat, blurred, new cv.Size(9, 9), 2, 2);
             cv.cvtColor(blurred, hsv, cv.COLOR_RGB2HSV);
             
             let mask = new cv.Mat(), maskR = new cv.Mat(), maskB = new cv.Mat();
@@ -262,7 +269,7 @@
             let contours = new cv.MatVector(), hierarchy = new cv.Mat();
             let color = "--", colorClass = "text-gray-400";
             
-            // 蓝色检测 (Area > 1800)
+            // 检测颜色 (使用 roiMat，背景黑了，干扰就没了)
             cv.findContours(maskB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
             let bFound = false;
             for(let i=0; i<contours.size(); ++i) {
@@ -271,45 +278,37 @@
             if(bFound) { color = "蓝色"; colorClass = "text-blue-500"; }
             else {
                 contours.delete(); contours = new cv.MatVector();
-                // 红色检测 (Area > 1800)
                 cv.findContours(maskR, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 for(let i=0; i<contours.size(); ++i) {
                     if(cv.contourArea(contours.get(i)) > 1800) { color = "红色"; colorClass = "text-red-500"; cv.drawContours(dst, contours, i, new cv.Scalar(255,0,0), 3); }
                 }
             }
 
-            // C. ORB 特征匹配与角度计算 (核心复刻)
+            // ORB 匹配
             let angleTxt = "--°";
             let matchInfo = "0";
             
             if(isRefReady) {
                 let fGray = new cv.Mat();
-                cv.cvtColor(inputMat, fGray, cv.COLOR_RGBA2GRAY);
+                cv.cvtColor(roiMat, fGray, cv.COLOR_RGBA2GRAY); // 注意：这里也用 roiMat 对应的灰度
                 
                 let kp = new cv.KeyPointVector(), desc = new cv.Mat();
                 orb.detectAndCompute(fGray, new cv.Mat(), kp, desc);
                 
                 if(desc.rows > 0 && refDescriptors.rows > 0) {
-                    let matches = new cv.DMatchVectorVector(); // 注意: knnMatch 返回 VectorVector
+                    let matches = new cv.DMatchVectorVector();
                     try {
-                        // Python: matches = flann.knnMatch(des1, des2, k=2)
                         matcher.knnMatch(refDescriptors, desc, matches, 2);
-                        
                         let good = [];
-                        // Python: if m.distance < 0.75 * n.distance
                         for(let i=0; i<matches.size(); ++i) {
                             let m = matches.get(i).get(0);
                             let n = matches.get(i).get(1);
-                            if(m.distance < 0.75 * n.distance) {
-                                good.push(m);
-                            }
+                            if(m.distance < 0.75 * n.distance) good.push(m);
                         }
                         
                         matchInfo = good.length;
                         
-                        // Python: if len(points_good) > MIN_MATCH_COUNT (30)
                         if(good.length > 30) {
-                            // 构造源点和目标点
                             let srcPts = [], dstPts = [];
                             for(let i=0; i<good.length; i++) {
                                 let m = good[i];
@@ -319,47 +318,39 @@
                                 dstPts.push(dp.x); dstPts.push(dp.y);
                             }
                             
-                            // WebAssembly 数据类型严格: 必须用 CV_32FC2 
                             let srcMat = cv.matFromName(good.length, 1, cv.CV_32FC2, srcPts);
                             let dstMat = cv.matFromName(good.length, 1, cv.CV_32FC2, dstPts);
-                            
-                            // Python: M, mask = cv2.findHomography(src_array, dst_array, cv2.RANSAC, 5.0)
                             let H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
                             
                             if(!H.empty()) {
-                                // Python 核心公式: theta = -np.arctan2(M[0, 1], M[0, 0]) * 180 / np.pi
-                                // JS中: H.data64F[0] 是 M[0,0], H.data64F[1] 是 M[0,1]
                                 let m00 = H.data64F[0];
                                 let m01 = H.data64F[1];
-                                
                                 let theta = -Math.atan2(m01, m00) * 180 / Math.PI;
                                 angleTxt = Math.round(theta) + "°";
                                 
-                                // 可视化: 绘制绿框
+                                // 可视化
                                 let objCor = cv.matFromName(4, 1, cv.CV_32FC2, [0,0, refImgSize.width,0, refImgSize.width,refImgSize.height, 0,refImgSize.height]);
                                 let scnCor = new cv.Mat();
                                 cv.perspectiveTransform(objCor, scnCor, H);
-                                
                                 let p = [];
                                 for(let i=0; i<8; i++) p.push(scnCor.data32F[i]);
                                 
-                                // 画线 (Green)
                                 cv.line(dst, {x:p[0], y:p[1]}, {x:p[2], y:p[3]}, [0,255,0,255], 4);
                                 cv.line(dst, {x:p[2], y:p[3]}, {x:p[4], y:p[5]}, [0,255,0,255], 4);
                                 cv.line(dst, {x:p[4], y:p[5]}, {x:p[6], y:p[7]}, [0,255,0,255], 4);
                                 cv.line(dst, {x:p[6], y:p[7]}, {x:p[0], y:p[1]}, [0,255,0,255], 4);
-                                
                                 objCor.delete(); scnCor.delete(); H.delete();
-                            } else {
-                                console.log("Homography 矩阵计算为空");
                             }
                             srcMat.delete(); dstMat.delete();
                         }
-                    } catch(e) { console.error(e); }
+                    } catch(e) {}
                     matches.delete();
                 }
                 kp.delete(); desc.delete(); fGray.delete();
             }
+
+            // 画出 ROI 区域框，让用户知道要把东西放哪里
+            cv.rectangle(dst, {x:x1, y:y1}, {x:x2, y:y2}, [255, 255, 0, 255], 2);
 
             cv.imshow('canvasOutput', dst);
             document.getElementById('res-color').innerText = color;
