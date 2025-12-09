@@ -6,10 +6,12 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>智能制造视觉检测系统 (V12)</title>
+    <title>智能制造视觉检测系统 (V13)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    
+    <script async src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.2/dist/opencv.js" onload="onOpenCvReady();" onerror="onOpenCvError();" type="text/javascript"></script>
+
     <script>
         tailwind.config = {
             theme: { extend: { colors: { primary: '#165DFF', secondary: '#36CFFB', success: '#00B42A', warning: '#FF7D00', danger: '#F53F3F' } } }
@@ -17,14 +19,25 @@
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col">
+    <div id="error-modal" class="fixed inset-0 bg-black/80 z-[100] hidden flex items-center justify-center">
+        <div class="bg-white p-6 rounded-lg max-w-sm text-center">
+            <i class="fa fa-exclamation-triangle text-4xl text-danger mb-4"></i>
+            <h3 class="text-lg font-bold mb-2">OpenCV 加载失败！</h3>
+            <p class="text-sm text-gray-600 mb-4">无法连接到服务器下载算法库。请尝试：<br>1. 刷新页面重试<br>2. 检查网络连接</p>
+            <button onclick="location.reload()" class="bg-primary text-white px-4 py-2 rounded">刷新页面</button>
+        </div>
+    </div>
+
     <header class="bg-primary text-white shadow-md">
         <div class="container mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa fa-industry text-2xl"></i>
-                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-red-600 text-white text-xs px-2 py-1 rounded ml-2">V12(稳定内核)</span></h1>
+                <h1 class="text-xl font-bold">视觉检测系统 <span class="bg-green-500 text-white text-xs px-2 py-1 rounded ml-2">V13(国内源)</span></h1>
             </div>
             <div class="flex items-center space-x-4">
-                <span id="opencv-status" class="bg-yellow-500 text-xs px-2 py-1 rounded">引擎加载中...</span>
+                <span id="opencv-status" class="bg-yellow-500 text-white text-xs px-3 py-1 rounded font-bold animate-pulse">
+                    <i class="fa fa-spinner fa-spin mr-1"></i>引擎加载中...
+                </span>
                 <span id="match-status" class="bg-gray-500 text-xs px-2 py-1 rounded">等待模板</span>
             </div>
         </div>
@@ -35,8 +48,8 @@
             <div class="lg:col-span-2 space-y-6">
                 <div class="bg-white rounded-lg shadow-md overflow-hidden relative border-2 border-gray-300">
                     <div class="relative aspect-video bg-black">
-                        <video id="video" class="absolute inset-0 w-full h-full object-contain" playsinline muted></video>
-                        <canvas id="canvasOutput" class="absolute inset-0 w-full h-full object-contain"></canvas>
+                        <video id="video" width="640" height="480" class="absolute inset-0 w-full h-full object-contain" playsinline muted></video>
+                        <canvas id="canvasOutput" width="640" height="480" class="absolute inset-0 w-full h-full object-contain"></canvas>
                         <div class="absolute top-4 left-4 bg-black/70 text-white text-xs px-2 py-1 rounded-md z-50">
                             <span id="camera-status">摄像头未连接</span>
                         </div>
@@ -47,15 +60,15 @@
                     <div class="flex items-center gap-4 border-b pb-4">
                         <span class="bg-primary text-white px-2 py-1 rounded text-sm">Step 1</span>
                         <div class="flex-1 text-sm">载入标准模板 (1.jpg)</div>
-                        <button onclick="document.getElementById('ref-input').click()" class="bg-secondary text-white py-1 px-3 rounded text-sm">上传模板</button>
+                        <button onclick="document.getElementById('ref-input').click()" class="bg-secondary text-white py-1 px-3 rounded text-sm btn-action" disabled>上传模板</button>
                         <input type="file" id="ref-input" accept="image/*" class="hidden">
                     </div>
                     <div class="flex items-center gap-4">
                         <span class="bg-success text-white px-2 py-1 rounded text-sm">Step 2</span>
                         <div class="flex-1 text-sm">开始检测</div>
                         <div class="flex gap-2">
-                            <button id="btn-camera" onclick="toggleCamera()" class="bg-primary text-white py-2 px-4 rounded text-sm" disabled>启动摄像头</button>
-                            <button onclick="document.getElementById('test-input').click()" class="bg-warning text-white py-2 px-4 rounded text-sm">图片测试</button>
+                            <button id="btn-camera" onclick="toggleCamera()" class="bg-primary text-white py-2 px-4 rounded text-sm btn-action" disabled>启动摄像头</button>
+                            <button onclick="document.getElementById('test-input').click()" class="bg-warning text-white py-2 px-4 rounded text-sm btn-action" disabled>图片测试</button>
                             <input type="file" id="test-input" accept="image/*" class="hidden">
                         </div>
                     </div>
@@ -93,24 +106,40 @@
         let ctx = canvas.getContext('2d');
         let stream = null, isRunning = false;
         
-        // 全局矩阵池 (防止内存泄露)
         let src = null, dst = null, mask = null, maskedSrc = null; 
         let hsv = null, blurred = null, gray = null;
         let lowRed1, highRed1, lowRed2, highRed2, lowBlue, highBlue;
         let cap = null;
         
-        // 匹配器
         let orb = null, matcher = null;
         let refKeypoints = null, refDescriptors = null;
         let refImgSize = null;
         let isRefReady = false;
 
+        // === 库加载状态监控 ===
         function onOpenCvReady() {
-            document.getElementById('opencv-status').textContent = "OpenCV 就绪";
-            document.getElementById('opencv-status').className = "bg-green-600 text-white text-xs px-2 py-1 rounded";
-            document.getElementById('btn-camera').disabled = false;
-            log("V12 系统就绪。分辨率锁定 640x480 以匹配 Python 算法。");
+            // 只有这个函数被调用，说明库下载成功了
+            let status = document.getElementById('opencv-status');
+            status.textContent = "OpenCV 就绪";
+            status.className = "bg-green-600 text-white text-xs px-3 py-1 rounded font-bold";
+            
+            // 解锁所有按钮
+            document.querySelectorAll('.btn-action').forEach(btn => btn.disabled = false);
+            
+            log("V13 系统就绪。OpenCV 库加载成功！");
         }
+
+        function onOpenCvError() {
+            document.getElementById('error-modal').classList.remove('hidden');
+            log("错误：OpenCV 库下载失败！");
+        }
+
+        // 设置一个15秒超时，如果还没加载完就报错
+        setTimeout(() => {
+            if(typeof cv === 'undefined') {
+                onOpenCvError();
+            }
+        }, 15000);
 
         function log(msg) {
             let d = document.getElementById('system-log');
@@ -118,10 +147,11 @@
             d.scrollTop = d.scrollHeight;
         }
 
-        // 1. 上传模板 (初始化 ORB)
+        // 1. 上传模板
         document.getElementById('ref-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
+            log(`正在分析模板...`);
             let img = new Image();
             img.onload = function() {
                 try {
@@ -147,43 +177,38 @@
             img.src = URL.createObjectURL(file);
         };
 
-        // 2. 图片测试 (独立通道)
+        // 2. 图片测试
         document.getElementById('test-input').onchange = function(e) {
             let file = e.target.files[0];
             if(!file) return;
-            stopCamera(); // 强制停止摄像头
-            log(`加载测试图: ${file.name}`);
+            stopCamera(); 
+            log(`加载测试图...`);
             
             let img = new Image();
             img.onload = function() {
-                // 强制缩放到 640x480 以匹配 ROI
                 canvas.width = 640; 
                 canvas.height = 480;
                 video.style.display = 'none';
                 
-                // 画图
                 ctx.drawImage(img, 0, 0, 640, 480);
                 
-                // 延迟处理确保绘制完成
                 setTimeout(() => {
                     try {
-                        // 临时初始化矩阵，用完即焚
                         initGlobalMatrices(640, 480);
                         let mat = cv.imread(canvas);
-                        processMat(mat); // 执行核心算法
+                        processMat(mat);
                         mat.delete();
                         log("图片识别完成");
                     } catch(err) { log("图片识别错误: " + err); }
-                }, 100);
+                }, 200);
             };
             img.src = URL.createObjectURL(file);
         };
 
-        // 3. 摄像头控制
+        // 3. 摄像头
         async function toggleCamera() {
             if(isRunning) { stopCamera(); return; }
             try {
-                // 强制请求 VGA 分辨率 640x480
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { width: {ideal: 640}, height: {ideal: 480}, facingMode: 'environment' }, 
                     audio: false 
@@ -193,10 +218,8 @@
                 video.play();
                 
                 video.onloadedmetadata = () => {
-                    // 强制设置内部尺寸
                     video.width = 640; video.height = 480;
                     canvas.width = 640; canvas.height = 480;
-                    
                     initGlobalMatrices(640, 480);
                     cap = new cv.VideoCapture(video);
                     
@@ -217,7 +240,6 @@
         }
 
         function initGlobalMatrices(w, h) {
-            // 安全释放旧内存
             try {
                 if(src && !src.isDeleted()) src.delete(); 
                 if(dst && !dst.isDeleted()) dst.delete();
@@ -228,7 +250,6 @@
                 if(gray && !gray.isDeleted()) gray.delete();
             } catch(e) {}
 
-            // 分配新内存
             src = new cv.Mat(h, w, cv.CV_8UC4);
             dst = new cv.Mat(h, w, cv.CV_8UC3);
             mask = new cv.Mat(h, w, cv.CV_8UC1);
@@ -237,7 +258,6 @@
             hsv = new cv.Mat();
             gray = new cv.Mat();
 
-            // 阈值 (分配一次)
             lowRed1 = new cv.Mat(h, w, cv.CV_8UC3, [0, 50, 50, 0]);
             highRed1 = new cv.Mat(h, w, cv.CV_8UC3, [10, 255, 255, 0]);
             lowRed2 = new cv.Mat(h, w, cv.CV_8UC3, [170, 50, 50, 0]);
@@ -253,35 +273,31 @@
                 cap.read(src);
                 processMat(src);
                 requestAnimationFrame(loop);
-            } catch(err) {
-                console.error("Loop Error:", err);
-                // 遇到错误尝试重启循环，而不是死机
-                // requestAnimationFrame(loop); 
-            }
+            } catch(err) { console.error(err); requestAnimationFrame(loop); }
         }
 
         function processMat(inputMat) {
             if (inputMat.cols !== 640 || inputMat.rows !== 480) {
-                // 如果尺寸不对，为了稳定性，resize
                 cv.resize(inputMat, inputMat, new cv.Size(640, 480));
             }
             
-            // A. 遮罩逻辑 (Python: img_mask[150:390, 180:425] = 1)
+            // A. 遮罩逻辑 (ROI)
             cv.cvtColor(inputMat, dst, cv.COLOR_RGBA2RGB);
             
-            mask.setTo([0, 0, 0, 0]); // 全黑
-            let rect = new cv.Rect(180, 150, 245, 240); // Python 硬编码区域
-            let white = new cv.Scalar(255, 255, 255);
-            cv.rectangle(mask, rect, white, -1); // 挖空中间
+            mask.setTo([0, 0, 0, 0]);
+            let rect = new cv.Rect(180, 150, 245, 240);
+            cv.rectangle(mask, rect, [255, 255, 255, 255], -1);
             
             maskedSrc.setTo([0,0,0,0]);
-            cv.bitwise_and(dst, dst, maskedSrc, mask); // 应用遮罩
+            cv.bitwise_and(dst, dst, maskedSrc, mask);
 
             // B. 颜色识别
             cv.GaussianBlur(maskedSrc, blurred, new cv.Size(9, 9), 2, 2);
             cv.cvtColor(blurred, hsv, cv.COLOR_RGB2HSV);
             
             let m1 = new cv.Mat(), m2 = new cv.Mat(), mR = new cv.Mat(), mB = new cv.Mat();
+            if (!lowRed1 || lowRed1.isDeleted()) return; // 安全检查
+
             cv.inRange(hsv, lowRed1, highRed1, m1);
             cv.inRange(hsv, lowRed2, highRed2, m2);
             cv.bitwise_or(m1, m2, mR);
@@ -290,7 +306,6 @@
             let contours = new cv.MatVector(), hierarchy = new cv.Mat();
             let color = "--", colorClass = "text-gray-400";
             
-            // 蓝
             cv.findContours(mB, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
             let bFound = false;
             for(let i=0; i<contours.size(); ++i) {
@@ -298,7 +313,6 @@
             }
             if(bFound) { color = "蓝色"; colorClass = "text-blue-500"; }
             else {
-                // 红
                 contours.delete(); contours = new cv.MatVector();
                 cv.findContours(mR, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 for(let i=0; i<contours.size(); ++i) {
@@ -312,7 +326,7 @@
             
             if(isRefReady) {
                 let fGray = new cv.Mat();
-                cv.cvtColor(maskedSrc, fGray, cv.COLOR_RGB2GRAY); // 用遮罩后的图
+                cv.cvtColor(maskedSrc, fGray, cv.COLOR_RGB2GRAY);
                 let kp = new cv.KeyPointVector(), desc = new cv.Mat();
                 orb.detectAndCompute(fGray, new cv.Mat(), kp, desc);
                 
@@ -367,7 +381,7 @@
                 kp.delete(); desc.delete(); fGray.delete();
             }
 
-            // 画出 ROI 框提示用户
+            // 画 ROI
             cv.rectangle(dst, {x:180, y:150}, {x:425, y:390}, [255, 255, 0, 255], 2);
 
             cv.imshow('canvasOutput', dst);
